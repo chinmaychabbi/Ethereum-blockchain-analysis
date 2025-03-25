@@ -1,0 +1,649 @@
+---
+title: "Network Analysis for the dataset1(first_10000.csv)"
+output: html_document
+date: "2024-04-21"
+---
+
+```{r}
+library(visNetwork)
+library(igraph)
+library(ggplot2)
+library(knitr) 
+```
+
+
+```{r}
+# Specify column classes for transactions dataset including token address and transaction hash
+transactions_col_types <- c(
+  transaction_hash = "character",
+  from_address = "character",
+  to_address = "character",
+  token_address = "character",
+  value = "numeric",
+  timestamp = "integer"
+)
+
+# Specify column classes for label datasets
+labels_col_types <- c(label = "character", address = "character", 
+                      name = "character", asset = "character")
+
+# Read the datasets with explicit data type handling
+transactions <- read.csv("C:/Users/zhouyi/Desktop/new/first_10000.csv", 
+                         colClasses = transactions_col_types, stringsAsFactors = FALSE)
+alphacore_labels <- read.csv("C:/Users/zhouyi/Desktop/new/alphacore_labels_stablecoin.csv", 
+                             colClasses = labels_col_types, stringsAsFactors = FALSE)
+exchange_labels <- read.csv("C:/Users/zhouyi/Desktop/new/exchangeLabels.csv", 
+                            colClasses = labels_col_types, stringsAsFactors = FALSE)
+
+# Creating the network
+# Create an edge list from the transaction data
+edge_list <- data.frame(from = transactions$from_address, to = transactions$to_address)
+
+# Create a graph from the edge list
+network <- graph_from_data_frame(edge_list, directed = TRUE)
+```
+1. Network Structure Analysis
+In this part, I calculate key structural properties of the Ethereum transaction network, such as its size, connectivity, and clustering. I also analyze its algebraic properties through the Laplacian matrix to assess network robustness and identify significant nodes. The outputs I generate include network metrics, a visual representation, and the eigenvalue spectrum. 
+```{r}
+# Compute basic structural properties of the network
+num_nodes <- vcount(network)
+num_edges <- ecount(network)
+node_degrees <- degree(network)
+min_degree <- min(node_degrees)
+max_degree <- max(node_degrees)
+average_path_length <- average.path.length(network, directed = TRUE)
+diameter_of_network <- diameter(network, directed = TRUE, unconnected = TRUE)
+clustering_coefficient_global <- transitivity(network, type = "global")
+g.density <- graph.density(network)
+
+# Compute the Laplacian matrix and its eigenvalues
+laplacian_matrix <- laplacian_matrix(network)
+eigenvalues <- eigen(laplacian_matrix, symmetric = TRUE)$values
+lambda2 <- eigenvalues[2]  # Second smallest eigenvalue
+lambdan <- tail(eigenvalues, n=1)  # Largest eigenvalue
+
+# Print the computed values
+cat(sprintf("Number of Nodes: %d\n", num_nodes))
+cat(sprintf("Number of Edges: %d\n", num_edges))
+cat(sprintf("Minimum Degree: %d\n", min_degree))
+cat(sprintf("Maximum Degree: %d\n", max_degree))
+cat(sprintf("Average Path Length: %.4f\n", average_path_length))
+cat(sprintf("Diameter: %d\n", diameter_of_network))
+cat(sprintf("Global Clustering Coefficient: %.4f\n", clustering_coefficient_global))
+cat(sprintf("Algebraic Connectivity (λ2): %.4f\n", lambda2))
+cat(sprintf("Largest Eigenvalue (λn): %.4f\n", lambdan))
+cat(sprintf("Density: %.4f\n", g.density), "\n")
+
+# Visualizations
+# Degree Distribution
+degree_distribution <- data.frame(Degree = node_degrees)
+ggplot(degree_distribution, aes(x = Degree)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+  theme_minimal() +
+  labs(title = "Degree Distribution", x = "Degree", y = "Count")
+
+# Network Visualization with Node Size Based on Degree
+plot(network, vertex.size = sqrt(node_degrees) * 2, vertex.label = NA,
+     main = "Network Visualization (Node Size by Degree)")
+
+# Eigenvector Spectrum of the Laplacian Matrix
+eigenvalues_df <- data.frame(EigenvalueIndex = 1:length(eigenvalues), Eigenvalue = eigenvalues)
+ggplot(eigenvalues_df, aes(x = EigenvalueIndex, y = Eigenvalue)) +
+  geom_line(group = 1, color = "red") +
+  theme_minimal() +
+  labs(title = "Spectrum of the Laplacian Matrix", x = "Index", y = "Eigenvalue")
+
+```
+
+
+2.Node Importance Analysis
+In this part, I calculate various centrality measures of the Ethereum transaction network, identifying key nodes based on their structural importance. I analyze degree, closeness, betweenness, PageRank, and other centrality metrics, extracting the top five nodes for each and displaying them in a data frame. This allows me to understand network by highlighting the most influential nodes. Additionally, I convert these metrics into histograms, visually representing the distribution of centrality values.
+
+```{r}
+# Calculate various centrality measures
+degree_centrality <- degree(network, mode = "all")
+eccentricity_centrality <- eccentricity(network, mode = "all")
+closeness_centrality <- closeness(network, normalized = TRUE)
+betweenness_centrality <- betweenness(network, normalized = TRUE)
+pagerank_centrality <- page_rank(network)$vector
+authority_scores <- authority_score(network)$vector
+hub_scores <- hub_score(network)$vector
+eigenvector_centrality <- eigen_centrality(network)$vector
+
+# Calculate top nodes for each centrality measure
+centrality_measures <- list(
+  "Degree" = degree_centrality,
+  "Eccentricity" = eccentricity_centrality,
+  "Closeness" = closeness_centrality,
+  "Betweenness" = betweenness_centrality,
+  "PageRank" = pagerank_centrality,
+  "Authority" = authority_scores,
+  "Hub" = hub_scores,
+  "Eigenvector" = eigenvector_centrality
+)
+
+# Extract the top 5 nodes for each centrality measure and store them in a matrix for easy display
+top_nodes_matrix <- sapply(centrality_measures, function(x) names(sort(x, decreasing = TRUE)[1:5]), simplify = TRUE)
+
+# Convert the matrix to a data frame for nicer output
+top_nodes_df <- as.data.frame(top_nodes_matrix)
+colnames(top_nodes_df) <- names(centrality_measures)
+
+# Print the heading and the data frame
+cat("Top nodes by Centrality Measures:\n")
+print(top_nodes_df, row.names = FALSE)
+
+# Ensure each data frame has a correctly named column and convert to numeric
+data_list <- list(
+  data_degree = data.frame(Degree = as.numeric(degree_centrality)),
+  data_eccentricity = data.frame(Eccentricity = as.numeric(eccentricity_centrality)),
+  data_closeness = data.frame(Closeness = as.numeric(closeness_centrality)),
+  data_betweenness = data.frame(Betweenness = as.numeric(betweenness_centrality)),
+  data_pagerank = data.frame(PageRank = as.numeric(pagerank_centrality)),
+  data_authority = data.frame(Authority = as.numeric(authority_scores)),
+  data_hub = data.frame(Hub = as.numeric(hub_scores)),
+  data_eigenvector = data.frame(Eigenvector = as.numeric(eigenvector_centrality))
+)
+
+# Function to plot histogram using ggplot2
+plot_histogram <- function(data, title) {
+  column_name <- names(data)[1]
+  p <- ggplot(data, aes_string(x = column_name)) +
+    geom_histogram(bins = 30, fill = "blue", color = "black", na.rm = TRUE) +
+    theme_minimal() +
+    labs(title = title, x = column_name, y = "Frequency") +
+    theme(plot.title = element_text(hjust = 0.5))
+  print(p)
+}
+
+for (name in names(data_list)) {
+    plot_histogram(data_list[[name]], paste("Histogram of", name))
+  }
+
+
+```
+
+
+3.Community Detection
+In this part, I employ the Walktrap method to detect communities within the Ethereum transaction network, assigning unique IDs and colors to each community to visually distinguish them. After mapping these attributes, I save the enhanced network to a GraphML file for further analysis and visualization in other tools. I also calculate the modularity to assess the strength of the community divisions, providing insights into how nodes cluster together. This method helps reveal the network’s structure, useful for understanding interaction patterns.
+
+```{r}
+# Apply the Walktrap community detection method for directed graphs
+community_walktrap <- cluster_walktrap(network)
+
+# Assign community IDs to vertices
+V(network)$community_id <- membership(community_walktrap)
+
+# Generate colors for each unique community
+communities <- unique(V(network)$community_id)
+colors <- rainbow(length(communities))
+names(colors) <- communities
+
+# Assign colors to vertices based on their community ID
+V(network)$color <- colors[V(network)$community_id]
+
+# Save the network with all attributes to GraphML
+write_graph(network, file = "C:/Users/zhouyi/Desktop/new/network10000.graphml", format = "graphml")
+
+
+# Calculate modularity of the community structure
+modularity_value <- modularity(community_walktrap)
+cat("Modularity of community structure:", modularity_value, "\n")
+
+
+```
+whole dynamic graph
+
+```{r}
+library(igraph)
+# Specify column classes for label datasets
+labels_col_types <- c(label = "character", address = "character", 
+                      name = "character", asset = "character")
+
+# Read the datasets with explicit data type handling
+transactions2 <- read.csv("C:/Users/zhouyi/Desktop/new/first_10000.csv", 
+                         colClasses = transactions_col_types, stringsAsFactors = FALSE)
+
+# Assign artificial timestamps assuming each row represents a consecutive unit of time
+transactions$timestamp <- 1:nrow(transactions)
+
+# Create an edge list with timestamps
+edge_list <- data.frame(
+  from = transactions$from_address,
+  to = transactions$to_address,
+  start = transactions$timestamp,
+  end = transactions$timestamp + 1  # Assuming each transaction lasts for one unit of time
+)
+
+# Create a graph from the edge list
+graph <- graph_from_data_frame(d = edge_list, directed = TRUE)
+
+# Apply the Walktrap community detection method
+community_walktrap <- cluster_walktrap(graph)
+
+# Assign community IDs to vertices
+V(graph)$community_id <- membership(community_walktrap)
+
+# Generate colors for each unique community
+communities <- unique(V(graph)$community_id)
+colors <- rainbow(length(communities))
+names(colors) <- communities
+
+# Assign colors to vertices based on their community ID
+V(graph)$color <- colors[V(graph)$community_id]
+
+# Set dynamic attributes for edges
+E(graph)$start <- edge_list$start
+E(graph)$end <- edge_list$end
+
+# Export the graph to GraphML format with dynamic attributes
+write_graph(graph, file="C:/Users/zhouyi/Downloads/cpts591/GraphML_Files/dynamic_network.graphml", format="graphml")
+
+# Confirmation message
+print("Dynamic network GraphML file has been saved with community color coding.")
+
+```
+node dynamic graph: 0xf20b9e713a33f61fa38792d2afaf1cd30339126a
+
+```{r}
+library(igraph)
+
+# Specify column classes for label datasets
+labels_col_types <- c(label = "character", address = "character", 
+                      name = "character", asset = "character")
+
+# Read the datasets with explicit data type handling
+transactions2 <- read.csv("C:/Users/zhouyi/Desktop/new/first_10000.csv", 
+                         colClasses = transactions_col_types, stringsAsFactors = FALSE)
+
+# Assign artificial timestamps assuming each row represents a consecutive unit of time
+transactions2$timestamp <- 1:nrow(transactions2)
+
+# Filter transactions to include only those involving the specific node
+specific_node <- "0xf20b9e713a33f61fa38792d2afaf1cd30339126a"
+filtered_transactions <- transactions2[
+  transactions2$from_address == specific_node | transactions2$to_address == specific_node, ]
+
+# Set a final timestamp that extends beyond the last transaction for permanent visibility
+final_timestamp <- max(transactions2$timestamp) + 1
+
+# Create an edge list with timestamps from the filtered transactions
+edge_list <- data.frame(
+  from = filtered_transactions$from_address,
+  to = filtered_transactions$to_address,
+  start = filtered_transactions$timestamp,
+  end = final_timestamp  # Set end time to a fixed value beyond the last timestamp
+)
+
+# Create a graph from the edge list
+graph <- graph_from_data_frame(d = edge_list, directed = TRUE)
+
+# Apply the Walktrap community detection method (optional if needed for a small subset)
+community_walktrap <- cluster_walktrap(graph)
+
+# Assign community IDs to vertices
+V(graph)$community_id <- membership(community_walktrap)
+
+# Generate colors for each unique community
+communities <- unique(V(graph)$community_id)
+colors <- rainbow(length(communities))
+names(colors) <- communities
+
+# Assign colors to vertices based on their community ID
+V(graph)$color <- colors[V(graph)$community_id]
+
+# Initialize node appearance times
+V(graph)$start <- final_timestamp  # Default to final timestamp
+
+# Update node start times based on the earliest edge connection
+for(v in V(graph)) {
+  incident_edges <- incident(graph, v)
+  earliest_start <- min(E(graph)$start[incident_edges])
+  V(graph)$start[v] <- earliest_start
+}
+
+# All nodes and edges end at the same final timestamp
+V(graph)$end <- final_timestamp
+E(graph)$end <- rep(final_timestamp, ecount(graph))
+
+# Export the graph to GraphML format with dynamic attributes
+write_graph(graph, file="C:/Users/zhouyi/Downloads/cpts591/GraphML_Files/dynamic_network(0xf20b9e).graphml", format="graphml")
+
+# Confirmation message
+print("Dynamic network GraphML file has been saved with dynamic node and permanent edge visibility, focusing on node 0xf20b9e713a33f61fa38792d2afaf1cd30339126a")
+```
+node dynamic graph: 0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be
+```{r}
+library(igraph)
+
+# Specify column classes for label datasets
+labels_col_types <- c(label = "character", address = "character", 
+                      name = "character", asset = "character")
+
+# Read the datasets with explicit data type handling
+transactions2 <- read.csv("C:/Users/zhouyi/Desktop/new/first_10000.csv", 
+                         colClasses = transactions_col_types, stringsAsFactors = FALSE)
+
+# Assign artificial timestamps assuming each row represents a consecutive unit of time
+transactions2$timestamp <- 1:nrow(transactions2)
+
+# Filter transactions to include only those involving the specific node
+specific_node <- "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"
+filtered_transactions2 <- transactions2[
+  transactions2$from_address == specific_node | transactions2$to_address == specific_node, ]
+
+# Set a final timestamp that extends beyond the last transaction for permanent visibility
+final_timestamp <- max(transactions2$timestamp) + 1
+
+# Create an edge list with timestamps from the filtered transactions
+edge_list <- data.frame(
+  from = filtered_transactions2$from_address,
+  to = filtered_transactions2$to_address,
+  start = filtered_transactions2$timestamp,
+  end = final_timestamp  # Set end time to a fixed value beyond the last timestamp
+)
+
+# Create a graph from the edge list
+graph <- graph_from_data_frame(d = edge_list, directed = TRUE)
+
+# Apply the Walktrap community detection method (optional if needed for a small subset)
+community_walktrap <- cluster_walktrap(graph)
+
+# Assign community IDs to vertices
+V(graph)$community_id <- membership(community_walktrap)
+
+# Generate colors for each unique community
+communities <- unique(V(graph)$community_id)
+colors <- rainbow(length(communities))
+names(colors) <- communities
+
+# Assign colors to vertices based on their community ID
+V(graph)$color <- colors[V(graph)$community_id]
+
+# Initialize node appearance times
+V(graph)$start <- final_timestamp  # Default to final timestamp
+
+# Update node start times based on the earliest edge connection
+for(v in V(graph)) {
+  incident_edges <- incident(graph, v)
+  earliest_start <- min(E(graph)$start[incident_edges])
+  V(graph)$start[v] <- earliest_start
+}
+
+# All nodes and edges end at the same final timestamp
+V(graph)$end <- final_timestamp
+E(graph)$end <- rep(final_timestamp, ecount(graph))
+
+# Export the graph to GraphML format with dynamic attributes
+write_graph(graph, file="C:/Users/zhouyi/Downloads/cpts591/GraphML_Files/dynamic_network(0x3f5ce).graphml", format="graphml")
+
+# Confirmation message
+print("Dynamic network GraphML file has been saved with dynamic node and permanent edge visibility, focusing on node 0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be")
+```
+Transaction Volume Over Time
+Analyze the number and volume of transactions over time to observe any trends or patterns, such as periods of high activity or changes in transaction behavior.(eigenvector centrality)
+```{r}
+library(ggplot2)
+
+# Assuming 'filtered_transactions' includes a column 'timestamp' representing sequential units of time
+# Convert these timestamps to a more aggregated time scale, e.g., by grouping every 10 units together
+filtered_transactions$TimeBin <- cut(filtered_transactions$timestamp, breaks = seq(from = min(filtered_transactions$timestamp), to = max(filtered_transactions$timestamp), by = 10), 
+                                     include.lowest = TRUE, labels = FALSE)
+
+# Aggregate transaction counts by new time bins
+transactions_by_time <- aggregate(x = list(TransactionCount = filtered_transactions$timestamp), 
+                                  by = list(TimeBin = filtered_transactions$TimeBin), FUN = length)
+
+# Plot transaction frequency over time, now using time bins
+ggplot(transactions_by_time, aes(x = TimeBin, y = TransactionCount)) +
+  geom_line() +
+  labs(title = "Transaction Frequency Over Time for Node 0xf20b9e713a33f61fa38792d2afaf1cd30339126a",
+       x = "Time Bin", y = "Number of Transactions") +
+  theme_minimal()
+
+```
+Transaction Amount Analysis
+If transaction amounts are available, you can plot the total or average transaction amounts over time to detect any fluctuations in the volume of assets being transferred.(eigenvector centrality)
+
+```{r}
+library(ggplot2)
+
+# Assuming 'filtered_transactions' includes a column 'timestamp' representing sequential units of time
+# Convert these timestamps to a more aggregated time scale, e.g., by grouping every 10 units together
+filtered_transactions$TimeBin <- cut(filtered_transactions$timestamp, 
+                                     breaks = seq(from = min(filtered_transactions$timestamp), 
+                                                  to = max(filtered_transactions$timestamp), by = 10),
+                                     include.lowest = TRUE, labels = FALSE)
+
+# Aggregate transaction values by new time bins
+transactions_by_value <- aggregate(value ~ TimeBin, data=filtered_transactions, FUN = sum)
+
+# Plot transaction values over time, now using time bins
+ggplot(transactions_by_value, aes(x = TimeBin, y = value)) +
+  geom_line() +
+  labs(title = "Transaction Value Over Time for Node 0xf20b9e713a33f61fa38792d2afaf1cd30339126a",
+       x = "Time Bin", y = "Total Transaction Value") +
+  theme_minimal()
+```
+Transaction Volume Over Time
+Analyze the number and volume of transactions over time to observe any trends or patterns, such as periods of high activity or changes in transaction behavior.(page rank centrality)
+
+```{r}
+library(ggplot2)
+
+# Assuming 'filtered_transactions' includes a column 'timestamp' representing sequential units of time
+# Convert these timestamps to a more aggregated time scale, e.g., by grouping every 10 units together
+filtered_transactions2$TimeBin <- cut(filtered_transactions2$timestamp, breaks = seq(from = min(filtered_transactions2$timestamp), to = max(filtered_transactions2$timestamp), by = 10), 
+                                     include.lowest = TRUE, labels = FALSE)
+
+# Aggregate transaction counts by new time bins
+transactions_by_time <- aggregate(x = list(TransactionCount = filtered_transactions2$timestamp), 
+                                  by = list(TimeBin = filtered_transactions2$TimeBin), FUN = length)
+
+# Plot transaction frequency over time, now using time bins
+ggplot(transactions_by_time, aes(x = TimeBin, y = TransactionCount)) +
+  geom_line() +
+  labs(title = "Transaction Frequency Over Time for Node 0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
+       x = "Time Bin", y = "Number of Transactions") +
+  theme_minimal()
+
+```
+Transaction Amount Analysis
+If transaction amounts are available, you can plot the total or average transaction amounts over time to detect any fluctuations in the volume of assets being transferred.(page rank centrality)
+```{r}
+library(ggplot2)
+
+# Assuming 'filtered_transactions' includes a column 'timestamp' representing sequential units of time
+# Convert these timestamps to a more aggregated time scale, e.g., by grouping every 10 units together
+filtered_transactions2$TimeBin <- cut(filtered_transactions2$timestamp, 
+                                     breaks = seq(from = min(filtered_transactions2$timestamp), 
+                                                  to = max(filtered_transactions2$timestamp), by = 10),
+                                     include.lowest = TRUE, labels = FALSE)
+
+# Aggregate transaction values by new time bins
+transactions_by_value <- aggregate(value ~ TimeBin, data=filtered_transactions2, FUN = sum)
+
+# Plot transaction values over time, now using time bins
+ggplot(transactions_by_value, aes(x = TimeBin, y = value)) +
+  geom_line() +
+  labs(title = "Transaction Value Over Time for Node 0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
+       x = "Time Bin", y = "Total Transaction Value") +
+  theme_minimal()
+
+```
+4. Edge Dynamics
+Study how relationships (edges) form and dissolve over time, providing insights into the stability and dynamics of connections within the network.
+```{r}
+# Specify column classes for label datasets
+labels_col_types <- c(label = "character", address = "character", 
+                      name = "character", asset = "character")
+
+# Read the datasets with explicit data type handling
+transactions2 <- read.csv("C:/Users/zhouyi/Desktop/new/first_10000.csv", 
+                         colClasses = transactions_col_types, stringsAsFactors = FALSE)
+
+# Assign artificial timestamps assuming each row represents a consecutive unit of time
+transactions2$timestamp <- 1:nrow(transactions2)
+
+# Create the dynamic graph
+graph <- graph_from_data_frame(transactions2, directed = TRUE)
+
+# Initialize a list to store edge presence
+edge_presence <- list()
+
+# Iterate over each timestamp to track edge presence
+timestamps <- unique(transactions2$timestamp)
+for (t in timestamps) {
+    subgraph_t <- subgraph.edges(graph, E(graph)[transactions2$timestamp == t], delete.vertices = FALSE)
+    edge_presence[[as.character(t)]] <- get.edgelist(subgraph_t)
+}
+
+# Compare edge lists between consecutive timestamps to identify formation and dissolution
+edge_changes <- list()
+
+for (i in 1:(length(edge_presence) - 1)) {
+    edges_present <- edge_presence[[i]]
+    edges_next <- edge_presence[[i + 1]]
+    
+    # Convert edge lists to character for easy comparison
+    edges_present_char <- apply(edges_present, 1, paste, collapse = "-")
+    edges_next_char <- apply(edges_next, 1, paste, collapse = "-")
+    
+    # Find edges that form and dissolve
+    formed_edges <- setdiff(edges_next_char, edges_present_char)
+    dissolved_edges <- setdiff(edges_present_char, edges_next_char)
+    
+    edge_changes[[i]] <- list(formed = formed_edges, dissolved = dissolved_edges)
+}
+
+# Debug output
+print("Sample of formed edges:")
+print(edge_changes[[1]]$formed)
+print("Sample of dissolved edges:")
+print(edge_changes[[1]]$dissolved)
+
+# Example to plot the number of formed and dissolved edges over time
+formed_counts <- sapply(edge_changes, function(x) length(x$formed))
+dissolved_counts <- sapply(edge_changes, function(x) length(x$dissolved))
+
+df_changes <- data.frame(Time = 1:(length(timestamps) - 1), Formed = formed_counts, Dissolved = dissolved_counts)
+
+ggplot(df_changes, aes(x = Time)) +
+    geom_line(aes(y = Formed, colour = "Formed")) +
+    geom_line(aes(y = Dissolved, colour = "Dissolved")) +
+    labs(title = "Edge Dynamics Over Time", x = "Time (Sequential Timestamps)", y = "Number of Edges") +
+    scale_colour_manual(name = "Edge Changes", values = c("Formed" = "blue", "Dissolved" = "red")) +
+    theme_minimal()
+
+```
+
+4.Network Motifs and Subgraph Analysis
+In this part, I define and analyze ten different directed motifs in the Ethereum transaction network to uncover complex interaction patterns. I calculate the occurrences of motifs like "Triangle," "Star," and "M-Shape," using them to highlight prevalent transaction structures. After quantifying these, I visually represent each motif in a grid and provide detailed descriptions to elucidate their roles within the network. 
+
+```{r}
+suppressWarnings({
+# Define 10 specific directed 3-node motifs with new replacements
+motifs <- list(
+  triangle = graph_from_edgelist(matrix(c(1,2, 2,3, 3,1), ncol=2, byrow=TRUE), directed=TRUE),
+  star = graph_from_edgelist(matrix(c(1,2, 1,3, 1,4), ncol=2, byrow=TRUE), directed=TRUE),
+  divergent = graph_from_edgelist(matrix(c(1,2, 1,3, 2,3), ncol=2, byrow=TRUE), directed=TRUE),
+  in_chain = graph_from_edgelist(matrix(c(2,1, 3,2), ncol=2, byrow=TRUE), directed=TRUE),
+  bidir_edge = graph_from_edgelist(matrix(c(1,2, 2,1), ncol=2, byrow=TRUE), directed=TRUE),
+  out_fan = graph_from_edgelist(matrix(c(1,2, 1,3), ncol=2, byrow=TRUE), directed=TRUE),
+  in_fan = graph_from_edgelist(matrix(c(2,1, 3,1), ncol=2, byrow=TRUE), directed=TRUE),
+  m_shape = graph_from_edgelist(matrix(c(1,3, 2,3, 3,4, 3,5), ncol=2, byrow=TRUE), directed=TRUE),
+  all_to_one = graph_from_edgelist(matrix(c(2,1, 3,1, 4,1), ncol=2, byrow=TRUE), directed=TRUE),
+  t_shape = graph_from_edgelist(matrix(c(1,2, 1,3, 3,4, 3,5), ncol=2, byrow=TRUE), directed=TRUE)
+)
+
+# Count the specified motifs in the directed network
+motif_counts <- sapply(motifs, function(m) {
+  graph.count.subisomorphisms.vf2(network, m)
+})
+
+
+# Create a data frame for the motif counts
+motif_count_df <- data.frame(
+  Motif_ID = names(motif_counts),
+  Frequency = motif_counts
+)
+
+# Print the motif counts
+print(motif_count_df)
+
+# Visualize the specific motifs
+par(mfrow=c(2, 5))  # Set up plot area to display 10 plots in a 2x5 grid
+plot_names <- names(motifs)
+for (i in seq_along(motifs)) {
+  plot(motifs[[i]], main=plot_names[i])
+}
+
+# Print detailed descriptions of each motif type
+cat("Detailed descriptions of each directed motif type in the Ethereum DEX network:\n")
+descriptions <- c(
+  "Triangle: A directed loop where each node transfers to the next, possibly indicating cyclical trading.",
+  "Star: A central node with directed edges to multiple others, indicating a hub in the network.",
+  "Divergent: A node directs to two others, which also have a connection, forming a V shape.",
+  "In Chain: A sequence of nodes where each node is directed from the previous, forming a chain.",
+  "Bidirectional Edge: Two nodes with edges in both directions, indicating mutual interaction.",
+  "Out Fan: A single node with outgoing edges to several nodes, like a broadcaster.",
+  "In Fan: A single node with incoming edges from several nodes, like a collector.",
+  "T-Shape: A central node connected to two distinct pairs of nodes, forming a T shape in the interaction.",
+  "All to One: All nodes in the motif direct to a single node, like a sink.",
+  "M-Shape: A central node with two incoming edges and two outgoing edges to different nodes, forming an M shape."
+)
+for (i in seq_along(descriptions)) {
+  cat(sprintf("%s: %s\n", plot_names[i], descriptions[i]))
+}
+})
+
+```
+5.Influence analysis
+In this part, I compute Eigenvector centrality to identify the most influential nodes in the Ethereum transaction network, and I pinpoint the top five. Using the most influential node, I simulate information diffusion, demonstrating how influence spreads through the network. This simulation is visualized by marking active nodes in red, providing insights into the impact of key nodes on the network's dynamics. 
+
+```{r}
+# Calculate Eigenvector centrality for each node
+eigenvector_centrality <- eigen_centrality(network)$vector
+
+# Identify top 5 influential nodes based on Eigenvector centrality
+top_influential_nodes <- order(eigenvector_centrality, decreasing = TRUE)[1:5]
+
+# Print top influential nodes
+cat("Top 5 influential nodes based on Eigenvector Centrality:", top_influential_nodes, "\n")
+
+# Function to simulate information diffusion
+simulate_diffusion <- function(network, initial_nodes, prob = 0.05, steps = 10) {
+  active <- rep(FALSE, vcount(network))
+  active[initial_nodes] <- TRUE
+  newly_active <- initial_nodes
+  
+  for (step in 1:steps) {
+    if (length(newly_active) == 0) break
+    current_active <- newly_active
+    newly_active <- c()
+    
+    for (node in current_active) {
+      neighbors <- neighbors(network, node)
+      for (neighbor in neighbors) {
+        if (!active[neighbor]) {
+          if (runif(1) < prob) {
+            newly_active <- c(newly_active, neighbor)
+            active[neighbor] <- TRUE
+          }
+        }
+      }
+    }
+  }
+  
+  return(which(active))
+}
+
+# Simulate diffusion starting from the most influential node
+influential_spread <- simulate_diffusion(network, initial_nodes = top_influential_nodes[1])
+
+# Visualize the result
+plot(network, vertex.color = ifelse(1:vcount(network) %in% influential_spread, "red", "gray"), 
+     vertex.size = sqrt(degree(network)) * 2, vertex.label = NA, 
+     main = "Diffusion Simulation from Top Influential Node")
+```
+
